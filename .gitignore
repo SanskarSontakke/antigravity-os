@@ -1,0 +1,10 @@
+*.o
+*.bin
+*.iso
+disk.img
+serial.log
+serial.out
+qemu.log
+isodir/
+.system_generated/
+brain/
