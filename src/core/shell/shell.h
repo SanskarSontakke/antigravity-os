@@ -2,17 +2,28 @@
 #define SHELL_H
 
 #include "command_registry.h"
+#include "Editor.h"
 
 // Forward declaration
-class Window;
+class TerminalWindow;
+
+struct EnvVar {
+    char key[32];
+    char value[64];
+};
 
 class Shell {
 private:
     char cwd[256];
-    Window* window;
     
 public:
-    Shell(Window* win);
+    TerminalWindow* window;
+    Editor editor;
+
+    EnvVar envs[16];
+    int env_count;
+
+    Shell(TerminalWindow* win);
     void Init();
     
     // Core
@@ -23,26 +34,37 @@ public:
     void SetCWD(const char* path);
     const char* GetCWD();
     
-    // Command Implementations (Static or Member?)
-    // Making them static fits the Registry, but they need access to Shell instance.
-    // The Registry typedef is: void (*CommandHandler)(const char* args, Shell* shell);
-    // So we can make them static helper functions in shell.cpp or static members here.
-    
-    static void CmdLs(const char* args, Shell* shell);
-    static void CmdCd(const char* args, Shell* shell);
-    static void CmdCat(const char* args, Shell* shell);
-    static void CmdMkdir(const char* args, Shell* shell);
-    static void CmdRm(const char* args, Shell* shell);
-    static void CmdTouch(const char* args, Shell* shell);
-    static void CmdPwd(const char* args, Shell* shell);
-    static void CmdDate(const char* args, Shell* shell);
-    static void CmdFree(const char* args, Shell* shell);
-    static void CmdUname(const char* args, Shell* shell);
-    static void CmdUptime(const char* args, Shell* shell);
-    static void CmdClear(const char* args, Shell* shell);
-    static void CmdHistory(const char* args, Shell* shell);
-    static void CmdEcho(const char* args, Shell* shell);
-    static void CmdHelp(const char* args, Shell* shell);
+    // Environment
+    void SetEnv(const char* key, const char* value);
+    const char* GetEnv(const char* key);
+    void Prompt(); // Overrides default prompt
+
+    // Autocomplete
+    const char* GetAutocompleteSuggestion(const char* partial_str);
+
+    // Command Implementations (using new signature)
+    static void CmdLs(int argc, char** argv, Shell* shell);
+    static void CmdCd(int argc, char** argv, Shell* shell);
+    static void CmdCat(int argc, char** argv, Shell* shell);
+    static void CmdMkdir(int argc, char** argv, Shell* shell);
+    static void CmdRm(int argc, char** argv, Shell* shell);
+    static void CmdTouch(int argc, char** argv, Shell* shell);
+    static void CmdPwd(int argc, char** argv, Shell* shell);
+    static void CmdDate(int argc, char** argv, Shell* shell);
+    static void CmdFree(int argc, char** argv, Shell* shell);
+    static void CmdUname(int argc, char** argv, Shell* shell);
+    static void CmdUptime(int argc, char** argv, Shell* shell);
+    static void CmdClear(int argc, char** argv, Shell* shell);
+    static void CmdHistory(int argc, char** argv, Shell* shell);
+    static void CmdEcho(int argc, char** argv, Shell* shell);
+    static void CmdHelp(int argc, char** argv, Shell* shell);
+
+    // New Commands
+    static void CmdCp(int argc, char** argv, Shell* shell);
+    static void CmdMv(int argc, char** argv, Shell* shell);
+    static void CmdEdit(int argc, char** argv, Shell* shell);
+    static void CmdNano(int argc, char** argv, Shell* shell);
+    static void CmdExport(int argc, char** argv, Shell* shell);
 };
 
 #endif

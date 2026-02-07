@@ -78,11 +78,41 @@ struct Ext4DirEntry {
     char name[];                  // Variable length
 } __attribute__((packed));
 
+// VFS Structures
+struct VirtualFile {
+    char name[64];
+    uint8_t* data;
+    int size;
+    bool is_dir;
+    VirtualFile* next;
+};
+
+struct FileEntry {
+    char name[64];
+    bool is_dir;
+    int size;
+};
+
+struct FileList {
+    FileEntry* entries;
+    int count;
+};
+
 class Ext4 {
 public:
     static void Init();
-    static void Ls(const char* path, char* out_buf, int max_len);
+    static void Ls(const char* path, char* out_buf, int max_len, bool show_details = false);
     static void ReadFile(const char* filename, char* buf);
-    // Write/Delete require complex Bitmap management, implemented later.
+    static void WriteFile(const char* filename, const char* data, int size);
+
+    // New Methods for Shell
+    static void MkDir(const char* path);
+    static void Rm(const char* path);
+    static void Touch(const char* path);
+    static bool DirExists(const char* path);
+
+    // List Helper
+    static FileList GetFileList(const char* path);
+    static void FreeFileList(FileList list);
 };
 #endif

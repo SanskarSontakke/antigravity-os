@@ -1,5 +1,6 @@
 #include "desktop.h"
 #include "window.h"
+#include "TerminalWindow.h"
 #include "../graphics/console.h"
 #include "../graphics/cursor.h"
 #include "../graphics/cursor.h"
@@ -51,7 +52,7 @@ void Desktop::Init() {
     active_window = 0;
     
     // Create Default Window
-    AddWindow(new Window(150, 100, 400, 300, "Welcome to Antigravity"));
+    AddWindow(new TerminalWindow(150, 100, 400, 300, "Terminal"));
     Draw();
 }
 
@@ -187,6 +188,10 @@ void Desktop::OnMouseMove(int x, int y) {
 
 // Input State
 static bool ctrl_pressed = false;
+
+bool Desktop::IsCtrlPressed() {
+    return ctrl_pressed;
+}
 
 void Desktop::OnKeyUp(int scancode) {
     if (scancode == 0x1D) ctrl_pressed = false; // Left Ctrl Release

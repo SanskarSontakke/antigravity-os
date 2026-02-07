@@ -4,7 +4,7 @@
 class Shell;
 
 // Command Handler Function Pointer Type
-typedef void (*CommandHandler)(const char* args, Shell* shell);
+typedef void (*CommandHandler)(int argc, char** argv, Shell* shell);
 
 struct CommandEntry {
     const char* name;

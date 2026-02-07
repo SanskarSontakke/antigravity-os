@@ -12,5 +12,6 @@ public:
     static void OnKeyDown(int scancode);
     static void OnKeyUp(int scancode);
     static void AddWindow(Window* win);
+    static bool IsCtrlPressed();
 };
 #endif
