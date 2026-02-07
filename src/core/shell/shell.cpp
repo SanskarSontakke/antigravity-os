@@ -133,10 +133,10 @@ void Shell::Execute(const char* input) {
     char* argv[16];
     int argc = 0;
 
-    char* buffer = (char*)kmalloc(strlen(input) + 1);
-    strcpy(buffer, input);
+    char* buffer = (char*)kmalloc(Utils::strlen(input) + 1);
+    Utils::strcpy(buffer, input);
 
-    int len = strlen(buffer);
+    int len = Utils::strlen(buffer);
     int start = 0;
     bool in_quotes = false;
     bool in_token = false;
@@ -195,19 +195,44 @@ void Shell::Execute(const char* input) {
 
 void Shell::CmdLs(int argc, char** argv, Shell* shell) {
     char buf[1024];
-    const char* path = shell->GetCWD();
+    const char* arg_path = 0;
     bool show_details = false;
 
     // Simple Argument Parser
     for(int i=1; i<argc; i++) {
-        if (strcmp(argv[i], "-l") == 0) {
+        if (Utils::strcmp(argv[i], "-l") == 0) {
             show_details = true;
         } else {
-            path = argv[i];
+            arg_path = argv[i];
         }
     }
 
-    Ext4::Ls(path, buf, 1024, show_details);
+    // Resolve Path
+    char resolved_path[256];
+    resolved_path[0] = 0;
+    if (arg_path == 0) {
+        Utils::strncpy(resolved_path, shell->GetCWD(), 255);
+    } else {
+        if (arg_path[0] == '/') {
+            Utils::strncpy(resolved_path, arg_path, 255);
+        } else {
+            const char* cwd = shell->GetCWD();
+            int cwd_len = Utils::strlen(cwd);
+            Utils::strncpy(resolved_path, cwd, 255);
+
+            if (cwd_len > 0 && resolved_path[cwd_len-1] != '/' && cwd_len < 254) {
+                Utils::strcat(resolved_path, "/");
+                cwd_len++;
+            }
+
+            int arg_len = Utils::strlen(arg_path);
+            if (cwd_len + arg_len < 256) {
+                Utils::strcat(resolved_path, arg_path);
+            }
+        }
+    }
+
+    Ext4::Ls(resolved_path, buf, 1024, show_details);
     shell->Print(buf);
 }
 
@@ -230,17 +255,17 @@ void Shell::CmdCd(int argc, char** argv, Shell* shell) {
     }
 
     // Handle Special Cases
-    if (strcmp(path, ".") == 0) return;
-    if (strcmp(path, "/") == 0) {
+    if (Utils::strcmp(path, ".") == 0) return;
+    if (Utils::strcmp(path, "/") == 0) {
         shell->SetCWD("/");
         return;
     }
-    if (strcmp(path, "..") == 0) {
+    if (Utils::strcmp(path, "..") == 0) {
         // Go up one level
         // Find last slash
         char temp[256];
-        strcpy(temp, shell->GetCWD());
-        int len = strlen(temp);
+        Utils::strcpy(temp, shell->GetCWD());
+        int len = Utils::strlen(temp);
         if (len > 1) { // Don't go up from root
             // Remove trailing slash if any
             if (temp[len-1] == '/') { temp[len-1] = 0; len--; }
@@ -263,13 +288,13 @@ void Shell::CmdCd(int argc, char** argv, Shell* shell) {
     // Relative Path handling
     if (path[0] != '/') {
         char temp[256];
-        strcpy(temp, shell->GetCWD());
-        int len = strlen(temp);
+        Utils::strcpy(temp, shell->GetCWD());
+        int len = Utils::strlen(temp);
         if (temp[len-1] != '/') {
             temp[len] = '/';
             temp[len+1] = 0;
         }
-        strcat(temp, path);
+        Utils::strcat(temp, path);
         shell->SetCWD(temp);
     } else {
         shell->SetCWD(path);
