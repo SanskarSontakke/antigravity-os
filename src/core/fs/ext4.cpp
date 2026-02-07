@@ -334,7 +334,7 @@ FileList Ext4::GetFileList(const char* path) {
 
     // 3. Allocate
     if (count > 0) {
-        list.entries = (FileEntry*)kmalloc(sizeof(FileEntry) * count);
+        list.entries = (Ext4FileEntry*)kmalloc(sizeof(Ext4FileEntry) * count);
         list.count = 0;
 
         // 4. Fill Disk

@@ -5,6 +5,8 @@
 #include "../../drivers/rtc.h"
 #include "../../utils/StringHelpers.h"
 
+using namespace Utils;
+
 Shell::Shell(TerminalWindow* win) : editor(win) {
     this->window = win;
     this->cwd[0] = '/';

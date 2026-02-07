@@ -87,14 +87,14 @@ struct VirtualFile {
     VirtualFile* next;
 };
 
-struct FileEntry {
+struct Ext4FileEntry {
     char name[64];
     bool is_dir;
     int size;
 };
 
 struct FileList {
-    FileEntry* entries;
+    Ext4FileEntry* entries;
     int count;
 };
 
