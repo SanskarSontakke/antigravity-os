@@ -81,8 +81,13 @@ struct Ext4DirEntry {
 class Ext4 {
 public:
     static void Init();
-    static void Ls(const char* path, char* out_buf, int max_len);
+    static void Ls(const char* path, char* out_buf, int max_len, bool show_details = false);
     static void ReadFile(const char* filename, char* buf);
-    // Write/Delete require complex Bitmap management, implemented later.
+
+    // New Methods for Shell
+    static void MkDir(const char* path);
+    static void Rm(const char* path);
+    static void Touch(const char* path);
+    static bool DirExists(const char* path);
 };
 #endif

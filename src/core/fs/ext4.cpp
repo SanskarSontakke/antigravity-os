@@ -56,7 +56,7 @@ void str_cat(char* dest, const char* src, int& offset, int max) {
     dest[offset] = 0;
 }
 
-void Ext4::Ls(const char* path, char* out_buf, int max_len) {
+void Ext4::Ls(const char* path, char* out_buf, int max_len, bool show_details) {
     int ptr = 0;
     out_buf[0] = 0;
 
@@ -98,6 +98,9 @@ void Ext4::Ls(const char* path, char* out_buf, int max_len) {
                 for(int i=0; i<len; i++) name[i] = entry->name[i];
                 name[len] = 0;
                 
+                if (show_details) {
+                    str_cat(out_buf, "-rw-r--r-- 1 root root 0 ", ptr, max_len); // Fake stats
+                }
                 str_cat(out_buf, " [FILE] ", ptr, max_len);
                 str_cat(out_buf, name, ptr, max_len);
                 str_cat(out_buf, "\n", ptr, max_len);
@@ -115,5 +118,29 @@ void Ext4::Ls(const char* path, char* out_buf, int max_len) {
 
 // Stub for now
 void Ext4::ReadFile(const char* name, char* buf) { 
-    Console::Print("Read not fully implemented yet.\n"); 
+    Console::Print("Read not fully implemented yet.\n");
+    // Just copy name to buffer to show something happened
+    int i=0;
+    const char* msg = "[File Content Placeholder]";
+    while(msg[i]) { buf[i] = msg[i]; i++; }
+    buf[i] = 0;
+}
+
+void Ext4::MkDir(const char* path) {
+    Console::Print("Ext4: mkdir not implemented (ReadOnly Driver)\n");
+}
+
+void Ext4::Rm(const char* path) {
+    Console::Print("Ext4: rm not implemented (ReadOnly Driver)\n");
+}
+
+void Ext4::Touch(const char* path) {
+    Console::Print("Ext4: touch not implemented (ReadOnly Driver)\n");
+}
+
+bool Ext4::DirExists(const char* path) {
+    if (!path) return false;
+    // Stub: Always return true as we lack full directory traversal.
+    // This allows 'cd' to simulate navigation.
+    return true;
 }
