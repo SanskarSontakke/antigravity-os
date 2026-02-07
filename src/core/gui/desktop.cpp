@@ -189,6 +189,10 @@ void Desktop::OnMouseMove(int x, int y) {
 // Input State
 static bool ctrl_pressed = false;
 
+bool Desktop::IsCtrlPressed() {
+    return ctrl_pressed;
+}
+
 void Desktop::OnKeyUp(int scancode) {
     if (scancode == 0x1D) ctrl_pressed = false; // Left Ctrl Release
 }

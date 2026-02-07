@@ -5,6 +5,7 @@
 
 // Forward Declaration to avoid circular dependency
 class Shell;
+class Editor;
 
 #define TERM_W 60
 #define TERM_H 25
@@ -12,8 +13,22 @@ class Shell;
 class TerminalWindow : public Window {
 public:
     char buffer[TERM_H][TERM_W];
+    uint32_t color_buffer[TERM_H][TERM_W]; // Store colors
     int cursor_row = 0;
     int cursor_col = 0;
+
+    // ANSI State
+    int ansi_state = 0;
+    int ansi_val = 0;
+    uint32_t current_color = 0xFFFFFF; // Default White
+
+    // Modes
+    enum Mode {
+        SHELL,
+        EDITOR
+    };
+    Mode mode;
+    Editor* active_editor;
 
     char input[128];
     int input_len = 0;

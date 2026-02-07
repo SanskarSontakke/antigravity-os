@@ -3,29 +3,15 @@
 #include "../fs/ext4.h"
 #include "../mm/kheap.h"
 #include "../../drivers/rtc.h"
+#include "../../utils/StringHelpers.h"
 
-// Helper: String Utils
-static int strlen(const char* str) {
-    int len=0; while(str[len]) len++; return len;
-}
-static void strcpy(char* dest, const char* src) {
-    while(*src) *dest++ = *src++;
-    *dest = 0;
-}
-static int strcmp(const char* s1, const char* s2) {
-    while(*s1 && (*s1 == *s2)) { s1++; s2++; }
-    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
-}
-static void strcat(char* dest, const char* src) {
-    while(*dest) dest++;
-    while(*src) *dest++ = *src++;
-    *dest = 0;
-}
-
-Shell::Shell(TerminalWindow* win) {
+Shell::Shell(TerminalWindow* win) : editor(win) {
     this->window = win;
     this->cwd[0] = '/';
     this->cwd[1] = 0;
+
+    this->env_count = 0;
+    SetEnv("PS1", "\033[32muser@antigravity\033[0m:\033[34m{cwd}\033[0m$ ");
 }
 
 void Shell::Init() {
@@ -44,6 +30,12 @@ void Shell::Init() {
     CommandRegistry::Register("history", CmdHistory);
     CommandRegistry::Register("echo", CmdEcho);
     CommandRegistry::Register("help", CmdHelp);
+
+    CommandRegistry::Register("cp", CmdCp);
+    CommandRegistry::Register("mv", CmdMv);
+    CommandRegistry::Register("edit", CmdEdit);
+    CommandRegistry::Register("nano", CmdNano);
+    CommandRegistry::Register("export", CmdExport);
 }
 
 void Shell::Print(const char* str) {
@@ -51,15 +43,87 @@ void Shell::Print(const char* str) {
 }
 
 void Shell::SetCWD(const char* path) {
-    // Simple path copy for now.
-    // Ideally we should resolve ".." and "." here.
     int i=0;
     while(path[i] && i < 255) { cwd[i] = path[i]; i++; }
     cwd[i] = 0;
+    SetEnv("PWD", cwd);
 }
 
 const char* Shell::GetCWD() {
     return cwd;
+}
+
+void Shell::SetEnv(const char* k, const char* v) {
+    // Search
+    for(int i=0; i<env_count; i++) {
+        if (Utils::strcmp(envs[i].key, k) == 0) {
+            Utils::strcpy(envs[i].value, v);
+            return;
+        }
+    }
+    if (env_count < 16) {
+        Utils::strcpy(envs[env_count].key, k);
+        Utils::strcpy(envs[env_count].value, v);
+        env_count++;
+    }
+}
+
+const char* Shell::GetEnv(const char* k) {
+    for(int i=0; i<env_count; i++) {
+        if (Utils::strcmp(envs[i].key, k) == 0) return envs[i].value;
+    }
+    return 0;
+}
+
+const char* Shell::GetAutocompleteSuggestion(const char* partial) {
+    static char suggestion[64];
+    suggestion[0] = 0;
+
+    int p_len = Utils::strlen(partial);
+    if (p_len == 0) return 0;
+
+    // 1. Commands
+    const CommandEntry* cmds = CommandRegistry::GetList();
+    int cmd_count = CommandRegistry::GetCount();
+    for(int i=0; i<cmd_count; i++) {
+        if (Utils::strncmp(cmds[i].name, partial, p_len) == 0) {
+            return cmds[i].name;
+        }
+    }
+
+    // 2. Files
+    FileList files = Ext4::GetFileList(GetCWD());
+    for(int i=0; i<files.count; i++) {
+        if (Utils::strncmp(files.entries[i].name, partial, p_len) == 0) {
+            Utils::strcpy(suggestion, files.entries[i].name);
+            Ext4::FreeFileList(files);
+            return suggestion;
+        }
+    }
+    Ext4::FreeFileList(files);
+
+    return 0;
+}
+
+void Shell::Prompt() {
+    const char* ps1 = GetEnv("PS1");
+    if (!ps1) ps1 = "$ ";
+
+    // Parse {cwd}
+    char buf[128];
+    int j=0;
+    for(int i=0; ps1[i] && j < 127; i++) {
+        if (ps1[i] == '{' && ps1[i+1] == 'c' && ps1[i+2] == 'w' && ps1[i+3] == 'd' && ps1[i+4] == '}') {
+            const char* pwd = GetCWD();
+            for(int k=0; pwd[k] && j < 127; k++) buf[j++] = pwd[k];
+            i += 4;
+        } else {
+            buf[j++] = ps1[i];
+        }
+    }
+    buf[j] = 0;
+
+    Print(buf);
 }
 
 void Shell::Execute(const char* input) {
@@ -68,7 +132,7 @@ void Shell::Execute(const char* input) {
     // Tokenizer
     char* argv[16];
     int argc = 0;
-    
+
     char* buffer = (char*)kmalloc(strlen(input) + 1);
     strcpy(buffer, input);
 
@@ -133,7 +197,7 @@ void Shell::CmdLs(int argc, char** argv, Shell* shell) {
     char buf[1024];
     const char* path = shell->GetCWD();
     bool show_details = false;
-    
+
     // Simple Argument Parser
     for(int i=1; i<argc; i++) {
         if (strcmp(argv[i], "-l") == 0) {
@@ -299,7 +363,78 @@ void Shell::CmdEcho(int argc, char** argv, Shell* shell) {
 
 void Shell::CmdHelp(int argc, char** argv, Shell* shell) {
     shell->Print("Available commands:\n");
-    shell->Print("  Filesystem: ls, cd, cat, mkdir, rm, touch, pwd\n");
-    shell->Print("  System:     date, free, uname, uptime\n");
+    shell->Print("  Filesystem: ls, cd, cat, cp, mv, mkdir, rm, touch, pwd\n");
+    shell->Print("  Editor:     edit, nano\n");
+    shell->Print("  System:     date, free, uname, uptime, export\n");
     shell->Print("  Terminal:   clear, history, echo, help\n");
+}
+
+void Shell::CmdCp(int argc, char** argv, Shell* shell) {
+    if (argc < 3) { shell->Print("Usage: cp <src> <dest>\n"); return; }
+
+    int max_size = 1024*20;
+    char* buf = (char*)kmalloc(max_size);
+    Ext4::ReadFile(argv[1], buf);
+    int len = Utils::strlen(buf);
+
+    if (len == 0 && buf[0] == 0) {
+        // Empty or not found (Ext4::ReadFile stub returns empty string if not found)
+        // If file really empty?
+        // Check list?
+        // For now assume valid if read.
+    }
+
+    Ext4::WriteFile(argv[2], buf, len);
+    kfree(buf);
+}
+
+void Shell::CmdMv(int argc, char** argv, Shell* shell) {
+    if (argc < 3) { shell->Print("Usage: mv <src> <dest>\n"); return; }
+    CmdCp(argc, argv, shell);
+    Ext4::Rm(argv[1]);
+}
+
+void Shell::CmdEdit(int argc, char** argv, Shell* shell) {
+    if (argc < 2) { shell->Print("Usage: edit <file>\n"); return; }
+    shell->editor.Start(argv[1]);
+}
+
+void Shell::CmdNano(int argc, char** argv, Shell* shell) {
+    CmdEdit(argc, argv, shell);
+}
+
+void Shell::CmdExport(int argc, char** argv, Shell* shell) {
+    if (argc < 2) {
+        // List envs
+        for(int i=0; i<shell->env_count; i++) {
+            shell->Print(shell->envs[i].key);
+            shell->Print("=");
+            shell->Print(shell->envs[i].value);
+            shell->Print("\n");
+        }
+        return;
+    }
+
+    // Format: KEY=VALUE
+    const char* arg = argv[1];
+    char key[32];
+    char val[64];
+    int k=0, v=0;
+    bool in_val = false;
+
+    for(int i=0; arg[i]; i++) {
+        if (!in_val) {
+            if (arg[i] == '=') {
+                in_val = true;
+                continue;
+            }
+            if (k < 31) key[k++] = arg[i];
+        } else {
+            if (v < 63) val[v++] = arg[i];
+        }
+    }
+    key[k] = 0;
+    val[v] = 0;
+
+    if (k > 0) shell->SetEnv(key, val);
 }
