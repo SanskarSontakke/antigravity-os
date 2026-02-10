@@ -5,8 +5,8 @@ LDPARAMS  = -melf_i386 -T linker.ld
 objects = src/boot.o src/kernel.o src/core/mm/kheap.o src/core/gdt.o src/core/interrupts.o src/core/interrupts_asm.o \
           src/drivers/keyboard.o src/drivers/mouse.o src/drivers/rtc.o src/drivers/ata.o \
           src/core/fs/sfs.o src/core/fs/ext4.o \
-          src/core/shell/command_registry.o src/core/shell/shell.o \
-          src/core/paging.o src/core/graphics/console.o src/core/gui/desktop.o
+          src/core/shell/command_registry.o src/core/shell/shell.o src/core/shell/Editor.o \
+          src/core/paging.o src/core/graphics/console.o src/core/gui/desktop.o src/core/gui/TerminalWindow.o
 
 run: myos.iso disk.img
 	qemu-system-i386 -cdrom myos.iso -drive file=disk.img,format=raw,index=0,media=disk -vga std -serial stdio > qemu.log 2>&1

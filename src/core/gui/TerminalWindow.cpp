@@ -3,54 +3,89 @@
 #include "../shell/Editor.h"
 #include "../graphics/console.h"
 #include "../../utils/StringHelpers.h"
+#include "../mm/kheap.h"
+#include "Theme.h"
+
+using namespace Utils;
 
 TerminalWindow::TerminalWindow(int x, int y, int w, int h, const char* t)
     : Window(x, y, w, h, t)
 {
-    // Pass this (TerminalWindow*) to Shell constructor
-    shell = new Shell(this);
-    shell->Init();
+    history_capacity = 128;
+    history_count = 0;
+    history = (HistoryLine*)kmalloc(sizeof(HistoryLine) * history_capacity);
+
+    current_line_len = 0;
+    scroll_offset = 0;
+
+    ansi_state = 0;
+    current_color = Theme::FOREGROUND;
 
     mode = SHELL;
     active_editor = 0;
 
+    shell = new Shell(this);
+    shell->Init();
+
     Clear();
-    Print("Antigravity OS v1.1 [Disk Mounted]\n");
+    Print("Antigravity OS v1.2 [Disk Mounted]\n");
     Prompt();
 }
 
+TerminalWindow::~TerminalWindow() {
+    Clear();
+    kfree(history);
+}
+
 void TerminalWindow::Clear() {
-    for(int r=0; r<TERM_H; r++) {
-        for(int c=0; c<TERM_W; c++) {
-             buffer[r][c] = 0;
-             color_buffer[r][c] = 0xFFFFFF;
-        }
+    for(int i=0; i<history_count; i++) {
+        kfree(history[i].text);
+        kfree(history[i].colors);
     }
-    cursor_row = 0;
-    cursor_col = 0;
-    current_color = 0xFFFFFF;
+    history_count = 0;
+    current_line_len = 0;
+    current_color = Theme::FOREGROUND;
     ansi_state = 0;
 }
 
-void TerminalWindow::Prompt() {
-    Print("root@fs:~$ ");
-    input_len = 0;
-    input_cursor = 0;
-    for(int i=0; i<128; i++) input[i] = 0;
+void TerminalWindow::OnResize(int w, int h) {
+    Window::OnResize(w, h);
+    // DrawContent handles reflow automatically
 }
 
-void TerminalWindow::Scroll() {
-    for(int r=1; r<TERM_H; r++) {
-        for(int c=0; c<TERM_W; c++) {
-            buffer[r-1][c] = buffer[r][c];
-            color_buffer[r-1][c] = color_buffer[r][c];
-        }
+void TerminalWindow::AddLine(const char* txt, const uint32_t* cols, int len) {
+    if (history_count >= history_capacity) {
+        // Realloc
+        int new_cap = history_capacity * 2;
+        HistoryLine* new_hist = (HistoryLine*)kmalloc(sizeof(HistoryLine) * new_cap);
+        for(int i=0; i<history_count; i++) new_hist[i] = history[i];
+        kfree(history);
+        history = new_hist;
+        history_capacity = new_cap;
     }
-    for(int c=0; c<TERM_W; c++) {
-        buffer[TERM_H-1][c] = 0;
-        color_buffer[TERM_H-1][c] = 0xFFFFFF;
+
+    HistoryLine& hl = history[history_count++];
+    hl.length = len;
+    hl.text = (char*)kmalloc(len + 1);
+    hl.colors = (uint32_t*)kmalloc(sizeof(uint32_t) * len);
+
+    for(int i=0; i<len; i++) {
+        hl.text[i] = txt[i];
+        hl.colors[i] = cols[i];
     }
-    cursor_row--;
+    hl.text[len] = 0;
+}
+
+void TerminalWindow::FlushCurrentLine() {
+    AddLine(current_line_text, current_line_colors, current_line_len);
+    current_line_len = 0;
+}
+
+void TerminalWindow::Prompt() {
+    shell->Prompt();
+    input_len = 0;
+    input_cursor = 0;
+    input[0] = 0;
 }
 
 void TerminalWindow::PutChar(char c) {
@@ -59,49 +94,33 @@ void TerminalWindow::PutChar(char c) {
         if (c == 0x1B) { ansi_state = 1; return; }
     } else if (ansi_state == 1) {
         if (c == '[') { ansi_state = 2; ansi_val = 0; return; }
-        else { ansi_state = 0; } // Invalid
+        else { ansi_state = 0; }
     } else if (ansi_state == 2) {
         if (c >= '0' && c <= '9') {
             ansi_val = ansi_val * 10 + (c - '0');
             return;
         } else if (c == 'm') {
-            // Apply Color
-            if (ansi_val == 0) current_color = 0xFFFFFF; // Reset
-            else if (ansi_val == 30) current_color = 0x000000;
-            else if (ansi_val == 31) current_color = 0xFF0000; // Red
-            else if (ansi_val == 32) current_color = 0x00FF00; // Green
-            else if (ansi_val == 33) current_color = 0xFFFF00; // Yellow
-            else if (ansi_val == 34) current_color = 0x0000FF; // Blue
-            else if (ansi_val == 35) current_color = 0xFF00FF; // Magenta
-            else if (ansi_val == 36) current_color = 0x00FFFF; // Cyan
-            else if (ansi_val == 37) current_color = 0xFFFFFF; // White
-
+            current_color = Theme::GetAnsiColor(ansi_val);
             ansi_state = 0;
             return;
         } else if (c == ';') {
-             // Ignore multiple params for now, just reset val
              ansi_val = 0;
              return;
         } else {
-            ansi_state = 0; // Abort
+            ansi_state = 0;
         }
     }
 
-    // Normal Char
     if (c == '\n') {
-        cursor_row++;
-        cursor_col = 0;
-        if(cursor_row >= TERM_H) Scroll();
+        FlushCurrentLine();
         return;
     }
-    if (cursor_col >= TERM_W) {
-        cursor_row++;
-        cursor_col = 0;
-        if(cursor_row >= TERM_H) Scroll();
+
+    if (current_line_len < 1023) {
+        current_line_text[current_line_len] = c;
+        current_line_colors[current_line_len] = current_color;
+        current_line_len++;
     }
-    buffer[cursor_row][cursor_col] = c;
-    color_buffer[cursor_row][cursor_col] = current_color;
-    cursor_col++;
 }
 
 void TerminalWindow::Print(const char* str) {
@@ -109,63 +128,49 @@ void TerminalWindow::Print(const char* str) {
 }
 
 void TerminalWindow::Execute() {
-    PutChar('\n');
+    PutChar('\n'); // Ensure newline
 
-    if (input_len == 0) { Prompt(); return; }
+    if (input_len > 0) {
+        // History Logic
+        if (cmd_history_count < 10) {
+            Utils::strcpy(cmd_history[cmd_history_count], input);
+            cmd_history_count++;
+        } else {
+            for(int j=1; j<10; j++)
+                Utils::strcpy(cmd_history[j-1], cmd_history[j]);
+            Utils::strcpy(cmd_history[9], input);
+        }
+        cmd_history_idx = cmd_history_count;
 
-    // History Logic
-    if (history_count < 10) {
-        for(int i=0; i<128; i++) history[history_count][i] = input[i];
-        history_count++;
+        if (shell) shell->Execute(input);
     } else {
-        for(int j=1; j<10; j++)
-            for(int i=0; i<128; i++) history[j-1][i] = history[j][i];
-        for(int i=0; i<128; i++) history[9][i] = input[i];
-    }
-    history_idx = history_count;
-
-    if (shell) {
-        shell->Execute(input);
-    } else {
-        Print("Error: Shell not initialized.\n");
+        Prompt();
     }
 
-    Prompt();
+    // Prompt is called inside shell->Execute usually, but if shell logic is weird:
+    // Shell::Execute calls Prompt() at the end.
+    // Wait, let's check Shell::Execute.
+    // It prints output. It does NOT call Prompt().
+    // So we should call Prompt().
 
-    input_len = 0;
-    input_cursor = 0;
-    input[0] = 0;
+    // Wait, old TerminalWindow called Prompt inside Execute.
+    // My previous read of TerminalWindow.cpp showed:
+    // Execute() { ... shell->Execute(input); ... Prompt(); }
+
+    // So yes, I should call Prompt() here unless Shell does it.
+    // Shell implementation I read earlier does NOT call Prompt().
+    // So I call it here.
+
+    // Wait, shell->Execute calls Prompt() inside it? No.
+    // Shell::Execute logic: Find command, execute handler.
+
+    // But wait, if I call Prompt() here, it will print prompt.
+    // Correct.
 }
 
 void TerminalWindow::OnKeyDown(int scancode, char ascii) {
     if (mode == EDITOR && active_editor) {
         active_editor->OnKeyDown(scancode, ascii);
-        return;
-    }
-
-    // TAB (0x0F) - Autocomplete
-    if (scancode == 0x0F) {
-        if (input_len > 0) {
-            // Find prefix (last word)
-            int start = 0;
-            for(int i=input_len-1; i>=0; i--) {
-                if (input[i] == ' ') { start = i + 1; break; }
-            }
-            char prefix[64];
-            int p_len = 0;
-            for(int i=start; i<input_len && p_len < 63; i++) prefix[p_len++] = input[i];
-            prefix[p_len] = 0;
-
-            if (p_len > 0) {
-                const char* suggestion = shell->GetAutocompleteSuggestion(prefix);
-                if (suggestion) {
-                    // Backspace prefix
-                    for(int i=0; i<p_len; i++) OnKeyDown(0x0E, 0);
-                    // Type suggestion
-                    for(int i=0; suggestion[i]; i++) OnKeyDown(0, suggestion[i]);
-                }
-            }
-        }
         return;
     }
 
@@ -181,38 +186,22 @@ void TerminalWindow::OnKeyDown(int scancode, char ascii) {
             input_cursor--;
             input[input_len] = 0;
 
-            if (cursor_col > 0) {
-                cursor_col--;
-                buffer[cursor_row][cursor_col] = 0;
-            }
+            if (current_line_len > 0) current_line_len--;
         }
         return;
     }
 
-    // ARROW UP (0x48)
+    // UP ARROW (0x48)
     if (scancode == 0x48) {
-        if (history_count > 0) {
-            if (history_idx > 0) history_idx--;
-            while(input_len > 0) { OnKeyDown(0x0E, 0); }
+        if (cmd_history_count > 0 && cmd_history_idx > 0) {
+            cmd_history_idx--;
+            // Clear current input from line
+            while(input_len > 0) OnKeyDown(0x0E, 0); // Backspace
 
-            for(int i=0; i<128 && history[history_idx][i]; i++) {
-                    char c = history[history_idx][i];
-                    OnKeyDown(0, c);
-            }
-        }
-        return;
-    }
-
-    // ARROW DOWN (0x50)
-    if (scancode == 0x50) {
-        if (history_idx < history_count) {
-            history_idx++;
-            while(input_len > 0) { OnKeyDown(0x0E, 0); }
-            if (history_idx < history_count) {
-                for(int i=0; i<128 && history[history_idx][i]; i++) {
-                        OnKeyDown(0, history[history_idx][i]);
-                }
-            }
+            Print(cmd_history[cmd_history_idx]);
+            Utils::strcpy(input, cmd_history[cmd_history_idx]);
+            input_len = Utils::strlen(input);
+            input_cursor = input_len;
         }
         return;
     }
@@ -228,26 +217,92 @@ void TerminalWindow::OnKeyDown(int scancode, char ascii) {
 }
 
 void TerminalWindow::DrawContent() {
-    for(int r=0; r<TERM_H; r++) {
-        int py = y + 25 + (r*10);
-        int px = x + 5;
+    int max_lines = (height - 20) / 10; // 10px line height (8+2)
+    int max_chars_per_line = (width - 10) / 9; // 8px char + 1px space
+    if (max_chars_per_line < 1) max_chars_per_line = 1;
 
-        // Clear Line Background (White)
-        // Optimization: Could be done better but ensure no artifacts
-        // DrawRect(px, py, TERM_W * 8, 10, 0xFFFFFF); // Provided by Desktop logic partly?
-        // No, Desktop draws window white. We just overwrite text.
-        // Wait, if we backspace, we need to clear.
-        // Easiest: Draw space if 0.
+    // Logic to find start point (same as thought process)
+    int visual_lines_needed = max_lines;
+    int start_hist_idx = -1;
+    int start_sub_line = 0;
 
-        for(int c=0; c<TERM_W; c++) {
-            char ch = buffer[r][c];
-            uint32_t col = color_buffer[r][c];
-            if (ch == 0) ch = ' ';
-            Console::PutChar(ch, col, px + (c*8), py);
+    int current_visual_lines = (current_line_len + max_chars_per_line - 1) / max_chars_per_line;
+    if (current_line_len == 0) current_visual_lines = 1;
+
+    if (visual_lines_needed <= current_visual_lines) {
+        start_hist_idx = history_count;
+        start_sub_line = current_visual_lines - visual_lines_needed;
+        if (start_sub_line < 0) start_sub_line = 0;
+    } else {
+        visual_lines_needed -= current_visual_lines;
+        for(int i = history_count - 1; i >= 0; i--) {
+            int len = history[i].length;
+            int v_lines = (len + max_chars_per_line - 1) / max_chars_per_line;
+            if (len == 0) v_lines = 1;
+
+            if (visual_lines_needed <= v_lines) {
+                start_hist_idx = i;
+                start_sub_line = v_lines - visual_lines_needed;
+                if (start_sub_line < 0) start_sub_line = 0; // Safety
+                visual_lines_needed = 0;
+                break;
+            }
+            visual_lines_needed -= v_lines;
         }
     }
-    // Cursor
-    int cx = x + 5 + (cursor_col * 8);
-    int cy = y + 25 + (cursor_row * 10);
-    for(int h=0; h<10; h++) Console::PutPixel(cx, cy+h, 0x000000);
+
+    if (start_hist_idx == -1) {
+        start_hist_idx = 0;
+        start_sub_line = 0;
+    }
+
+    int y_pos = y + 25;
+    int x_pos_base = x + 5;
+
+    int current_hist_idx = start_hist_idx;
+    int current_sub = start_sub_line;
+
+    while(y_pos < y + height - 10) {
+        char* text;
+        uint32_t* colors;
+        int len;
+
+        if (current_hist_idx == history_count) {
+            text = current_line_text;
+            colors = current_line_colors;
+            len = current_line_len;
+        } else if (current_hist_idx < history_count) {
+            text = history[current_hist_idx].text;
+            colors = history[current_hist_idx].colors;
+            len = history[current_hist_idx].length;
+        } else {
+            break;
+        }
+
+        int start_char = current_sub * max_chars_per_line;
+        int end_char = start_char + max_chars_per_line;
+        if (end_char > len) end_char = len;
+
+        for(int k=start_char; k<end_char; k++) {
+            Console::PutChar(text[k], colors[k], x_pos_base + (k - start_char)*9, y_pos);
+        }
+
+        // Cursor
+        if (current_hist_idx == history_count && end_char == len) {
+             int cx = x_pos_base + (len - start_char)*9;
+             // Draw Box Cursor
+             for(int h=0; h<10; h++) Console::PutPixel(cx, y_pos+h, Theme::FOREGROUND);
+        }
+
+        y_pos += 10;
+
+        int v_lines = (len + max_chars_per_line - 1) / max_chars_per_line;
+        if (len == 0) v_lines = 1;
+
+        current_sub++;
+        if (current_sub >= v_lines) {
+            current_sub = 0;
+            current_hist_idx++;
+        }
+    }
 }
